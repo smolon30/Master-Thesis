@@ -1,0 +1,185 @@
+### 1. Creazione file "manifest.tsv"
+
+Da un totale di 26 campioni di formaggini, sono stati prodotti 52 file fastq (paired end) mediante il sequenziamento MiSeq di illumina. A partire dalla posizione dei file fastq, ho creato il manifest file in formato tsv che consente di introdurre i file fastq nell'enviroment di qiime2 versione 2022.2.
+
+
+Codice per la creazione del file manifest:
+
+Per l'header ho utilizzato il comando:
+echo -e "sample-id/tforward-absolute-filepath/treverse-absolute-filepath" > manifest.tsv
+
+Per il "sample ID" ho utilizzato il comando:
+for f in *.gz ; do cut -d- -f1-2 <<< "$f"; done >> manifest.tsv
+
+Per la seconda colonna("forward-absolute-filepath") ho utilizzato il comando: 
+for f in /data/PROGETTO_FORMAGGINI_VERNOCCHI/FASTQ_files/forward/*.gz ; do echo -e "/t$pwd$f" ; done >> manifest.tsv
+
+Per la terza colonna("reverse-absolute-filepath") ho utilizzato il comando: 
+for f in  /data/PROGETTO_FORMAGGINI_VERNOCCHI/FASTQ_files/reverse/*.gz ; do echo -e "/t/t$pwd$f" ; done >> manifest.tsv
+
+Ho così ottenuto il file manifest.tsv.
+
+
+
+
+
+
+### 2. Importo i file fastq in qiime2 tramite le informazioni contenute nel file manifest.tsv
+
+Per importare il file in qiime2 ho utilizzato il comando:
+qiime tools import --type 'SampleData[PairedEndSequencesWithQuality]' --input-path manifest.tsv output-path paired-end-demux.qza --input-format PairedEndFastqManifestPhread33V2
+
+Ottengo in uscita il file "paired-end-demux.qza".
+
+Ho spostato il file nella cartella input-file-qiime2.
+
+
+
+
+
+
+
+### 3. Quality check
+
+Per controllare la qualità del sequenziamento eseguo un controllo di qualità dei file fastq che ho introdotto in qiime2. 
+
+Codice :
+
+qiime demux summarize --i-data input-file-qiime2/paired-end-demux.qza --o-visualization visualizzazione/paired-end-demux.qzv
+
+Visualizzo il file con qiime2 View.
+Dal quality control, le read forward hanno l'estremità 3' terminale con un valore minimo del q.score di 25, per cui la qualità è buona.
+Riguardo le read reverse, a partire dalla 240esima base i valori di q.score sono minori di 14. 
+
+A fronte di questi valori, ho applicato il trimming solo nelle reverse reads, in posizione 240.
+
+
+
+
+
+
+
+### 4. Dada2
+
+Dada2 è un tool di qiime2.
+Uso Dada2 per ottenere la tabella contenente le frequenze assolute delle Amplicon Sequence Variant (ASV) per ogni campione. Ogni ASV è rappresentata da una sequenza nucleotidica ottenuta dal clustering delle read per identità di sequenza. A sua volta una ASV rappresenta un organismo.
+
+A partire dal file "paired-end-demux.qza" dada2 esegue le seguenti operazioni:
+
+-filtering e trimming: è fondamentale per eliminare le sequenze di bassa qualità che possono contenere errori. Si tagliano le sequenze a una specifica lunghezza, scartando le sequenze con lunghezza inferiore. 
+-denoising. 
+-merging: allineamento di sequenza tra le estremità delle paired end per ottenendo gli ampliconi. Questi ultimi vengono clusterizzati per identità di sequenza producendo le ASV (overlapping: 12 nucleotidi). 
+-removal of chimeras: rimuove le sequenze chimeriche.
+
+Comando:
+
+qiime dada2 denoise-paired --i-demultiplexed-seqs paired-end-demux.qza --p-trunc-len-r 240 --o-table FeatureData[Sequence]_dada2-qza --o-representative-sequences FeatureTable[Frequency]_dada2.qza --o-denoising-stats Sampledata[DADA2Stats]_dada2.qza
+
+Si ottengono in output 3 file:
+
+-FeatureData[Sequence]_dada2.qza : mi dà informazioni riguardo le sequenze nucleotidiche di ogni amplicone. Questo è il file che contiene le sequenze delle ASV che utilizzerò per ottenere la tassonomia dei batteri dei miei campioni, confrontandolo con un database di sequenze nucleotidiche. 
+
+-FeatureTable[Frequency]_dada2.qza : matrice di conteggio che indica la frequenza assoluta di ogni ASV per ogni campione. 
+
+-Sampledata[DADA2Stats]_dada2.qza : mi informa sul numero e sulla percentuale di sequenze che sono state filtrate in ogni campione.
+
+- Partendo da 688074 reads, ottengo 2591 ASV. 
+
+
+- Frequenza assoluta totale delle ASV: 90533
+- Frequenza massima di ASV in un campione : 12761
+- Frequenza minima di ASV in un campione : 909
+- Frequenza media di ASV presenti nei campioni: 3482
+- Due campioni presentano una frequenza di ASV < 1000: 11_S11 (909) e 17_S17 (916).
+
+- Lunghezza media delle ASV: 447.61 nt.
+
+
+
+
+
+
+### 5. Taxonomy classification
+
+Interrogo le sequenze ottenute in output da Dada2 con il database di sequenze nucleotidiche Greengenes versione 12.8, per l'assegnazione tassonomica delle ASV.
+
+Importazione del database Greengenes:
+1. File "gg_12_8_taxonomy.txt.gz" che rappresenta la tassonomia.
+2. File "gg_12_8.fasta.gz" che rappresenta le sequenze nucleotidiche della regione 16S del DNA. In particolare da quest'ultimo dobbiamo estrarre le regioni V3 e V4 del 16S rRNA.
+
+
+
+## 5.1 Importo i files
+
+Per prima cosa ho scaricato i files ("gg_12_8_taxonomy.txt.gz" e "gg_12_8.fasta.gz") da greengenes (https://greengenes.secondgenome.com/?prefix=downloads/greengenes_database/gg_12_8/).
+
+Poi li ho estratti dal file .gz con il comando:
+
+gzip -d "gg_12_8_taxonomy.txt.gz" 
+gzip -d "gg_12_8.fasta.gz"
+
+Dopo di che li ho importati in qiime2 come files .qza. Ho usato i comandi: 
+
+qiime tools import --type FeatureData[Taxonomy] --input-path gg_12_8_taxonomy.txt --output-path gg_12_8_taxonomy.qza
+qiime tools import --type FeatureData[Sequence] --input-path gg_12_8.fasta --output-path gg_12_8.fasta.qza
+
+
+
+
+## 5.2 Step per la creazione del classificatore
+
+
+## 5.2.1 Creo un classificatore estraendo dal database Greengenes le sequenze delle regioni V3 e V4 del 16S rRNA ribosomiale.
+Questo mi permette di ridurre il costo computazionale dell'assegnazione tassonomica delle ASV.
+
+Per farlo ho utilizzato la funzione di qiime2 "qiime feature-classifier extract reads", che mi permette di estrarre le sequenze nucleotidiche che mi servono dal file gg_12_8.fasta.qza. Devo introdurre le sequenze dei primer utilizzate per la preaparazione della libreria. 
+
+Ho utilizzato il comando:
+
+qiime feature-classifier extract reads --i-sequences gg_12_8.fasta.qza --p-f-primer CAGCCTACGGGNGGCVVGCAG --p-r-primer CAGGACTACHVGGGTATCTAATCC --p-min-length 300 --p-max-length 467 --o-reads ref_seqs_300_467.qza
+
+Con questo comando ottengo in uscita il file "ref_seqs_300_467.qza" contenente le sequenze di riferimento con le quali vado a creare il classificatore.
+
+
+## 5.2.2  Creo il classificatore. Utilizzo il comando:
+
+"qiime feature-classifier fit-classifier-naive-bayes --i- reference-read ref_seqs_300_467.qza --i-reference-taxonomy gg_12_8_taxonomy.qza --o-classifier classifier_300_467.qza
+
+
+## 5.2.3 Assegnazione tassonomica delle ASV. Utilizzo il comando:
+
+qiime feature-classifier classify-sklearn --i-classifier classifier_300_467.qza --i-reads ../output_dada2/FeatureData[Sequence]_dada2.qza --o- classification taxonomy_300_467.qza
+
+- Ottengo in uscita il file "taxonomy_300_467.qza" che contiene le stringhe tassonomiche associate alle ASV dei miei campioni, con un intervallo di confidenza di almeno il 70%.
+
+Trasformo il file "taxonomy_300_467.qza" in formato.qzv per poterlo visualizzare.
+
+Utilizzo il comando:
+
+qiime metadata tabulate --m-input-file taxonomy_300_467.qza --o-visualization taxonomy_300_467.qzv
+
+Dal sito di qiime2 View scarico il file "taxonomy.tsv".
+
+
+
+
+
+### 6. Esportazione della FeatureTable[Frequency] in file .biom
+
+Utilizzo il comando:
+
+qiime tools export --input-path FeatureTable[Frequency]_dada2.qza --output-path .
+
+Utilizzo il comando:
+
+biom convert -i feature-table.biom -o ASVtable_not_collapsed.tsv --to-tsv  
+
+
+
+
+
+
+
+
+
+
