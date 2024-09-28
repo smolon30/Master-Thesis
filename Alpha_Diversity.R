@@ -23,7 +23,7 @@ library(broom)
 library(AICcmodavg)
 library(ranacapa)
 library(rmarkdown)
-setwd("C:/Users/asus 147456/Desktop/UNIVERSITA/1.TESI MAGISTRALE/Analisi di metagenomica/Script_analisi_batterica/")
+setwd("path")
 
 rm(list=ls())
 
@@ -35,7 +35,7 @@ samples_df <- read.xlsx('Samples_data_phyloseq.xlsx',rowNames = TRUE)
 samples_df$Samples <- NA
 samples_df$Samples <- rownames(samples_df)
 samples_df <- samples_df[order(row.names(samples_df)),]
-#write.xlsx(x = ASV_table,file = 'C:/Users/asus 147456/Desktop/TESI MAGISTRALE/Metaboliti formaggini/File_excel_tabelle_mann_whitney',colNames = TRUE,rowNames = TRUE)
+#write.xlsx(x = ASV_table,file = 'path',colNames = TRUE,rowNames = TRUE)
 
 
 
